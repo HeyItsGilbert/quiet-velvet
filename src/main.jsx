@@ -79,7 +79,7 @@ function App() {
                 <div className="box">
                     <div className="logo">
                         <i className="nf nf-custom-windows"></i>
-                        {output.host?.hostname} | {output.host?.friendlyOsVersion}
+                        {output.host?.hostname}
                     </div>
                     {output.glazewm && (
                         <div className="workspaces">
@@ -160,13 +160,6 @@ function App() {
                         { name: 'Shortcuts', changeState: setShowShortcuts }
                     ]}/>}
 
-                    {output.keyboard && (
-                        <div className="keyboard">
-                            <i className="nf nf-fa-keyboard"></i>
-                            {output.keyboard.layout}
-                        </div>
-                    )}
-
                     {output.memory && (
                         <button className="memory clean-button" onClick={
                             () => output.glazewm.runCommand('shell-exec taskmgr')
@@ -205,7 +198,7 @@ function App() {
                     {output.weather && (
                         <div className="weather">
                             {getWeatherIcon(output.weather)}
-                            {Math.round(output.weather.celsiusTemp)}°C
+                            {Math.round(output.weather.fahrenheitTemp)}°F
                         </div>
                     )}
                 </div>
