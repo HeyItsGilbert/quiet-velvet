@@ -37,7 +37,7 @@ function findWeztermContainer(workspaces) {
 }
 
 const AgentDeck = ({ commandRunner, glazewm }) => {
-    const { agents, counts, connected } = useAgentDeck(2000);
+    const { agents, counts, connected } = useAgentDeck(2000, commandRunner);
     const [expanded, setExpanded] = useState(false);
 
     const totalAgents = agents.length;
