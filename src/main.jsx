@@ -5,6 +5,7 @@ import SpotifyWidget from "./components/SpotifyWidget.jsx";
 import GoogleSearch from "./components/GoogleSearch.jsx";
 import Settings from "./components/Settings.jsx";
 import Shortcut from "./components/Shortcut";
+import AgentDeck from "./components/AgentDeck.jsx";
 import config from "./config.js";
 import moment from "moment";
 
@@ -26,6 +27,7 @@ function App() {
     const [showSpotifyWidget, setShowSpotifyWidget] = useState(true);
     const [showGoogleSearch, setShowGoogleSearch] = useState(true);
     const [showShortcuts, setShowShortcuts] = useState(true);
+    const [showAgentDeck, setShowAgentDeck] = useState(true);
     const [dateFormat, setDateFormat] = useState('HH:mm');
 
     useEffect(() => {
@@ -119,6 +121,7 @@ function App() {
 
             <div className="center">
                 <div className="box">
+                    {showAgentDeck && output.glazewm ? <AgentDeck commandRunner={output.glazewm.runCommand}/> : null}
                     {showSpotifyWidget ? <SpotifyWidget/> : null}
                     <i className="nf nf-md-calendar_month"></i>
                     <button className="clean-button" onMouseEnter={() => {
@@ -157,7 +160,8 @@ function App() {
                     {<Settings widgetObj={[
                         { name: 'Spotify', changeState: setShowSpotifyWidget },
                         { name: 'Google Search', changeState: setShowGoogleSearch },
-                        { name: 'Shortcuts', changeState: setShowShortcuts }
+                        { name: 'Shortcuts', changeState: setShowShortcuts },
+                        { name: 'Agent Deck', changeState: setShowAgentDeck }
                     ]}/>}
 
                     {output.memory && (
