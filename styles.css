@@ -254,46 +254,25 @@ body,
     opacity: 0.4;
 }
 
-.agent-deck-panel {
-    position: absolute;
-    top: calc(100% + 8px);
-    left: 50%;
-    transform: translateX(-50%);
-    background: var(--background-color);
-    border: 2px solid var(--main-color);
-    border-radius: 8px;
-    padding: 6px 4px;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    z-index: 100;
-    backdrop-filter: invert(1);
-    min-width: 160px;
-}
-
-.agent-deck-row {
-    display: flex;
+.agent-deck-agent {
+    display: inline-flex;
     align-items: center;
-    gap: 8px;
-    padding: 4px 10px;
+    gap: 4px;
+    padding: 2px 8px;
     border-radius: 4px;
     font-size: 11px;
     white-space: nowrap;
     transition: background 0.15s;
+    margin-right: 4px;
 }
 
-.agent-deck-row:hover {
-    background: rgb(255 255 255 / 10%);
+.agent-deck-agent:hover {
+    background: rgb(255 255 255 / 15%);
 }
 
 .agent-deck-project {
-    flex: 1;
+    color: var(--font-color);
+    max-width: 120px;
     overflow: hidden;
     text-overflow: ellipsis;
-    color: var(--font-color);
-}
-
-.agent-deck-status-label {
-    font-size: 10px;
-    text-transform: lowercase;
 }

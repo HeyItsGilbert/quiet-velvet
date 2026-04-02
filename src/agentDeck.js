@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import config from './config.js';
 
-const BASE_URL = `http://127.0.0.1:${config.agentDeckPort || 19876}`;
+export const BASE_URL = `http://127.0.0.1:${config.agentDeckPort || 19876}`;
 
 export function useAgentDeck(pollInterval = 2000) {
     const [state, setState] = useState({

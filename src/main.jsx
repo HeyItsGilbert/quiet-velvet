@@ -121,7 +121,7 @@ function App() {
 
             <div className="center">
                 <div className="box">
-                    {showAgentDeck && output.glazewm ? <AgentDeck commandRunner={output.glazewm.runCommand}/> : null}
+                    {showAgentDeck && output.glazewm ? <AgentDeck commandRunner={output.glazewm.runCommand} glazewm={output.glazewm}/> : null}
                     {showSpotifyWidget ? <SpotifyWidget/> : null}
                     <i className="nf nf-md-calendar_month"></i>
                     <button className="clean-button" onMouseEnter={() => {

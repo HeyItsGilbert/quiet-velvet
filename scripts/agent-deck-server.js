@@ -142,7 +142,7 @@ setInterval(pollAgents, POLL_INTERVAL);
 
 const server = http.createServer((req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST');
     res.setHeader('Content-Type', 'application/json');
 
     if (req.method === 'OPTIONS') {
@@ -154,6 +154,11 @@ const server = http.createServer((req, res) => {
     if (req.url === '/status' || req.url === '/') {
         res.writeHead(200);
         res.end(JSON.stringify(cachedState));
+    } else if (req.url.startsWith('/focus/') && req.method === 'POST') {
+        const paneId = req.url.split('/focus/')[1];
+        run(`wezterm cli activate-pane --pane-id ${paneId}`);
+        res.writeHead(200);
+        res.end('{"ok":true}');
     } else {
         res.writeHead(404);
         res.end('{"error":"not found"}');
