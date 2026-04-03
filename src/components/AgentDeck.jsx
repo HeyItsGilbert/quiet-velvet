@@ -37,7 +37,7 @@ function findWeztermContainer(workspaces) {
 }
 
 const AgentDeck = ({ commandRunner, glazewm }) => {
-    const { agents, counts, connected } = useAgentDeck(2000, commandRunner);
+    const { agents, counts, connected } = useAgentDeck(1000, commandRunner);
     const [expanded, setExpanded] = useState(false);
 
     const totalAgents = agents.length;
@@ -53,7 +53,7 @@ const AgentDeck = ({ commandRunner, glazewm }) => {
             commandRunner('focus', wt.containerId);
         }
 
-        // Activate the correct pane within WezTerm via the bridge server (no visible window)
+        // Activate the correct pane within WezTerm via the bridge server
         fetch(`${BASE_URL}/focus/${paneId}`, { method: 'POST' }).catch(() => {});
     }
 

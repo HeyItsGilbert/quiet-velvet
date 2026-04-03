@@ -19,11 +19,29 @@
         "**/**"
       ],
       "caching": {
-        "defaultDuration": 604800,
-        "rules": []
+        "defaultDuration": 0,
+        "rules": [
+          {
+            "urlRegex": "",
+            "duration": 0
+          }
+        ]
       },
       "privileges": {
-        "shellCommands": []
+        "shellCommands": [
+          {
+            "program": "node",
+            "argsRegex": ".*"
+          },
+          {
+            "program": "cmd",
+            "argsRegex": ".*"
+          },
+          {
+            "program": "wezterm",
+            "argsRegex": ".*"
+          }
+        ]
       },
       "presets": [
         {

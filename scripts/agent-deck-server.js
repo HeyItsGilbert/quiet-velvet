@@ -5,10 +5,40 @@
 // Usage: node scripts/agent-deck-server.js [port]
 
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const { execSync } = require('child_process');
 
 const PORT = parseInt(process.argv[2] || '19876', 10);
-const POLL_INTERVAL = 2000;
+const POLL_INTERVAL = 1000;
+const PID_FILE = path.join(__dirname, 'agent-deck-server.pid');
+
+// Kill any existing server before starting
+function killExisting() {
+    try {
+        const oldPid = parseInt(fs.readFileSync(PID_FILE, 'utf-8').trim(), 10);
+        if (oldPid && oldPid !== process.pid) {
+            process.kill(oldPid, 'SIGTERM');
+            console.log(`Killed previous server (PID ${oldPid})`);
+        }
+    } catch {
+        // No PID file or process already gone
+    }
+}
+
+function writePid() {
+    fs.writeFileSync(PID_FILE, String(process.pid));
+}
+
+function cleanupPid() {
+    try { fs.unlinkSync(PID_FILE); } catch {}
+}
+
+killExisting();
+writePid();
+process.on('exit', cleanupPid);
+process.on('SIGTERM', () => process.exit(0));
+process.on('SIGINT', () => process.exit(0));
 
 // Patterns to detect status from terminal content (last ~20 lines)
 const WAITING_PATTERNS = [
@@ -90,9 +120,9 @@ function pollAgents() {
         return;
     }
 
-    // Find Claude Code panes by title
+    // Find Claude Code panes by title or status indicators (braille spinner / ✳)
     const claudePanes = panes.filter(p =>
-        p.title && /claude/i.test(p.title)
+        p.title && (/claude/i.test(p.title) || /^[\u2800-\u28FF✳]\s/.test(p.title))
     );
 
     const agents = claudePanes.map(pane => {
@@ -100,9 +130,12 @@ function pollAgents() {
         const text = run(`wezterm cli get-text --pane-id ${pane.pane_id} --start-line -20`);
         const status = detectStatus(text);
 
-        // Extract project name from cwd
+        // Use session name from title (strip spinner prefix), fall back to cwd folder
         let projectName = 'unknown';
-        if (pane.cwd) {
+        const titleName = (pane.title || '').replace(/^[\u2800-\u28FF✳]\s*/, '');
+        if (titleName && titleName !== 'Claude Code') {
+            projectName = titleName;
+        } else if (pane.cwd) {
             const cleaned = pane.cwd
                 .replace(/^file:\/\/[^/]*/, '')
                 .replace(/\\/g, '/');

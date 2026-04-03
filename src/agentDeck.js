@@ -3,8 +3,6 @@ import config from './config.js';
 
 export const BASE_URL = `http://127.0.0.1:${config.agentDeckPort || 19876}`;
 
-const SERVER_SCRIPT = 'scripts/agent-deck-server.js';
-
 export function useAgentDeck(pollInterval = 2000, commandRunner = null) {
     const [state, setState] = useState({
         agents: [],
@@ -31,7 +29,9 @@ export function useAgentDeck(pollInterval = 2000, commandRunner = null) {
                 if (!startAttemptedRef.current && commandRunner) {
                     startAttemptedRef.current = true;
                     const port = config.agentDeckPort || 19876;
-                    commandRunner(`shell-exec cmd /c start /b node "%userprofile%\\.glzr\\zebar\\quiet-velvet\\${SERVER_SCRIPT.replace(/\//g, '\\')}" ${port}`);
+                    const script = `%userprofile%\\.glzr\\zebar\\quiet-velvet\\scripts\\agent-deck-server.js`;
+                    commandRunner(`shell-exec cmd /c start /b node "${script}" ${port}`);
+                    console.log('[AgentDeck] Server not running, launched via shell-exec');
                 }
                 setState({
                     agents: [],

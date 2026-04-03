@@ -1,7 +1,5 @@
 export default {
-    spotifyClientId: '<YOUR-SPOTIFY-CLIENT-ID>',
-    spotifyClientSecret: '<YOUR-SPOTIFY-CLIENT-SECRET>',
-    spotifyRefreshToken: '<YOUR-SPOTIFY-REFRESH-TOKEN>',
     explorerPath: 'C:/Windows/explorer.exe',
-    powershellPath: 'wezterm cli spawn'
+    powershellPath: 'C:/Program Files/WezTerm/wezterm-gui.exe',
+    agentDeckPort: 19876
 }

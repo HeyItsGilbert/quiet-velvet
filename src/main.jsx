@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import * as zebar from 'zebar';
-import SpotifyWidget from "./components/SpotifyWidget.jsx";
 import GoogleSearch from "./components/GoogleSearch.jsx";
 import Settings from "./components/Settings.jsx";
 import Shortcut from "./components/Shortcut";
@@ -24,7 +23,6 @@ createRoot(document.getElementById('root')).render(<App/>);
 
 function App() {
     const [output, setOutput] = useState(providers.outputMap);
-    const [showSpotifyWidget, setShowSpotifyWidget] = useState(true);
     const [showGoogleSearch, setShowGoogleSearch] = useState(true);
     const [showShortcuts, setShowShortcuts] = useState(true);
     const [showAgentDeck, setShowAgentDeck] = useState(true);
@@ -122,7 +120,6 @@ function App() {
             <div className="center">
                 <div className="box">
                     {showAgentDeck && output.glazewm ? <AgentDeck commandRunner={output.glazewm.runCommand} glazewm={output.glazewm}/> : null}
-                    {showSpotifyWidget ? <SpotifyWidget/> : null}
                     <i className="nf nf-md-calendar_month"></i>
                     <button className="clean-button" onMouseEnter={() => {
                         setDateFormat('ddd DD MMM HH:mm')
@@ -158,7 +155,6 @@ function App() {
                         </>
                     )}
                     {<Settings widgetObj={[
-                        { name: 'Spotify', changeState: setShowSpotifyWidget },
                         { name: 'Google Search', changeState: setShowGoogleSearch },
                         { name: 'Shortcuts', changeState: setShowShortcuts },
                         { name: 'Agent Deck', changeState: setShowAgentDeck }
