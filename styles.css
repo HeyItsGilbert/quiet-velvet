@@ -43,7 +43,7 @@ body,
     grid-template-columns: 1fr 1fr 1fr;
     align-items: center;
     height: 100%;
-    padding: 4px 1.5vw;
+    padding: 5px 5px;
     white-space: nowrap;
 }
 
@@ -83,7 +83,7 @@ body,
 
 .workspace {
     background: rgb(255 255 255 / 5%);
-    margin-right: 4px;
+    margin-right: 5px;
     padding: 3px 8px;
     color: var(--font-color);
     border: none;

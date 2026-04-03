@@ -76,9 +76,30 @@ let cachedState = {
     timestamp: 0,
 };
 
+function findWeztermSocket() {
+    // wezterm cli needs WEZTERM_UNIX_SOCKET to connect to the GUI.
+    // When spawned by Zebar this env var isn't inherited, so discover it.
+    if (process.env.WEZTERM_UNIX_SOCKET) return process.env.WEZTERM_UNIX_SOCKET;
+    try {
+        const dir = path.join(process.env.USERPROFILE || process.env.HOME || '', '.local', 'share', 'wezterm');
+        const files = fs.readdirSync(dir).filter(f => f.startsWith('gui-sock-'));
+        if (!files.length) return null;
+        // Pick the most recently modified socket
+        const newest = files
+            .map(f => ({ f, mtime: fs.statSync(path.join(dir, f)).mtimeMs }))
+            .sort((a, b) => b.mtime - a.mtime)[0].f;
+        return path.join(dir, newest);
+    } catch {
+        return null;
+    }
+}
+
 function run(cmd) {
     try {
-        return execSync(cmd, { encoding: 'utf-8', timeout: 5000, windowsHide: true });
+        const env = { ...process.env };
+        const sock = findWeztermSocket();
+        if (sock) env.WEZTERM_UNIX_SOCKET = sock;
+        return execSync(cmd, { encoding: 'utf-8', timeout: 5000, windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'], env });
     } catch {
         return null;
     }

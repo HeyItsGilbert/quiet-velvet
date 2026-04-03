@@ -20,23 +20,10 @@
       ],
       "caching": {
         "defaultDuration": 0,
-        "rules": [
-          {
-            "urlRegex": "",
-            "duration": 0
-          }
-        ]
+        "rules": []
       },
       "privileges": {
         "shellCommands": [
-          {
-            "program": "node",
-            "argsRegex": ".*"
-          },
-          {
-            "program": "cmd",
-            "argsRegex": ".*"
-          },
           {
             "program": "wezterm",
             "argsRegex": ".*"
@@ -46,7 +33,7 @@
       "presets": [
         {
           "name": "default",
-          "anchor": "top_left",
+          "anchor": "top_center",
           "offsetX": "0px",
           "offsetY": "0px",
           "width": "100%",
@@ -55,7 +42,7 @@
             "type": "all"
           },
           "dockToEdge": {
-            "enabled": false,
+            "enabled": true,
             "edge": null,
             "windowMargin": "0px"
           }
