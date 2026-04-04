@@ -8,3 +8,4 @@ package-lock.json
 
 /src/config.js
 scripts/agent-deck-server.pid
+agent-deck.log

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useAgentDeck, BASE_URL } from '../agentDeck.js';
+import { useAgentDeck } from '../agentDeck.js';
 
 const STATUS_COLORS = {
     working: '#4ade80',
@@ -13,13 +13,6 @@ const STATUS_ICONS = {
     waiting: 'nf-md-hand_back_right',
     idle: 'nf-md-coffee',
     inactive: 'nf-md-ghost_off',
-};
-
-const STATUS_LABELS = {
-    working: 'Working',
-    waiting: 'Waiting',
-    idle: 'Idle',
-    inactive: 'Inactive',
 };
 
 function findWeztermContainer(workspaces) {
@@ -37,24 +30,18 @@ function findWeztermContainer(workspaces) {
 }
 
 const AgentDeck = ({ commandRunner, glazewm }) => {
-    const { agents, counts, connected } = useAgentDeck(1000, commandRunner);
+    const { agents, counts, connected, activatePane } = useAgentDeck(1000);
     const [expanded, setExpanded] = useState(false);
 
     const totalAgents = agents.length;
     const activeStatuses = ['working', 'waiting', 'idle', 'inactive'].filter(s => counts[s] > 0);
 
     function focusPane(paneId) {
-        if (!commandRunner) return;
-
-        // Find the WezTerm window in GlazeWM and focus it
         const wt = glazewm ? findWeztermContainer(glazewm.allWorkspaces || []) : null;
-        if (wt) {
+        if (wt && commandRunner) {
             commandRunner(`focus --workspace ${wt.workspace}`);
-            commandRunner('focus', wt.containerId);
         }
-
-        // Activate the correct pane within WezTerm via the bridge server
-        fetch(`${BASE_URL}/focus/${paneId}`, { method: 'POST' }).catch(() => {});
+        activatePane(paneId);
     }
 
     return (

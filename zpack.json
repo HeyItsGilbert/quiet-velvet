@@ -20,12 +20,25 @@
       ],
       "caching": {
         "defaultDuration": 0,
-        "rules": []
+        "rules": [
+          {
+            "urlRegex": "https://www.nerdfonts.com/*",
+            "duration": 604800
+          }
+        ]
       },
       "privileges": {
         "shellCommands": [
           {
             "program": "wezterm",
+            "argsRegex": ".*"
+          },
+          {
+            "program": "cmd",
+            "argsRegex": ".*"
+          },
+          {
+            "program": "node",
             "argsRegex": ".*"
           }
         ]
