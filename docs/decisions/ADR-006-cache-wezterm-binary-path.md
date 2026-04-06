@@ -1,12 +1,12 @@
 ---
 id: ADR-006
 title: "Resolve and cache WezTerm binary path at module load"
-status: accepted
+status: superseded
 date: 2026-04-02
 decision-makers: []
 related: [ADR-001, ADR-004, ADR-005]
 tags: [agent-deck, wezterm, performance]
-superseded-by:
+superseded-by: ADR-012
 ---
 
 # ADR-006: Resolve and cache WezTerm binary path at module load
@@ -15,7 +15,7 @@ superseded-by:
 
 ## Status
 
-Accepted
+Superseded by [ADR-012](ADR-012-drop-socket-discovery-and-binary-resolution.md)
 
 ## Context
 

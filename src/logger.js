@@ -1,14 +1,10 @@
 /**
- * Agent Deck logger — writes to console and flushes to agent-deck.log
- * Log file: %USERPROFILE%\.glzr\zebar\quiet-velvet\agent-deck.log
+ * Agent Deck logger — console only.
  */
-import { shellExec } from 'zebar';
 
-const FLUSH_INTERVAL_MS = 3000;
 const MAX_BUFFER = 300;
 
 let buffer = [];
-let dirty = false;
 
 function timestamp() {
     return new Date().toISOString().replace('T', ' ').slice(0, 23);
@@ -30,28 +26,7 @@ function addEntry(level, message, data) {
 
     buffer.push(entry);
     if (buffer.length > MAX_BUFFER) buffer.splice(0, buffer.length - MAX_BUFFER);
-    dirty = true;
 }
-
-async function flush() {
-    if (!dirty || buffer.length === 0) return;
-
-    const lines = buffer.splice(0, buffer.length);
-    dirty = buffer.length > 0;
-    const content = lines.join('\n') + '\n';
-
-    try {
-        await shellExec('node', ['-e',
-            `const fs=require('fs'),path=require('path');` +
-            `const p=path.join(process.env.USERPROFILE,'.glzr','zebar','quiet-velvet','agent-deck.log');` +
-            `fs.appendFileSync(p,${JSON.stringify(content)});`
-        ]);
-    } catch (e) {
-        console.error('[AgentDeck] log flush failed:', e);
-    }
-}
-
-setInterval(flush, FLUSH_INTERVAL_MS);
 
 export const log = {
     debug: (msg, data) => addEntry('DEBUG', msg, data),

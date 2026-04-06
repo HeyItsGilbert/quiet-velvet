@@ -1,12 +1,12 @@
 ---
 id: ADR-005
 title: "Lazy WezTerm socket discovery with caching and stale detection"
-status: accepted
+status: superseded
 date: 2026-04-01
 decision-makers: []
 related: [ADR-001, ADR-004, ADR-006, ADR-007]
 tags: [agent-deck, wezterm, performance]
-superseded-by:
+superseded-by: ADR-012
 ---
 
 # ADR-005: Lazy WezTerm socket discovery with caching and stale detection
@@ -15,7 +15,7 @@ superseded-by:
 
 ## Status
 
-Accepted
+Superseded by [ADR-012](ADR-012-drop-socket-discovery-and-binary-resolution.md)
 
 ## Context
 

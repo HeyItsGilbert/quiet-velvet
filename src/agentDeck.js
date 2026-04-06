@@ -1,21 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
-import { shellExec } from 'zebar';
+import { shellExec, currentWidget } from 'zebar';
 import { log } from './logger.js';
 
-// Resolve the wezterm binary path once to avoid PATH traversal on every call.
-let _weztermBinPromise = null;
-function getWeztermBin() {
-    if (!_weztermBinPromise) {
-        _weztermBinPromise = shellExec('cmd', ['/c', 'where wezterm'])
-            .then(r => {
-                const bin = r.code === 0 ? r.stdout?.trim().split('\n')[0].trim() : null;
-                log.info('Resolved wezterm binary', { path: bin ?? 'wezterm (fallback)' });
-                return bin ?? 'wezterm';
-            })
-            .catch(() => 'wezterm');
-    }
-    return _weztermBinPromise;
-}
+// Derive USERPROFILE from the widget's html path (e.g. C:\Users\<user>\.glzr\...)
+const htmlPath = currentWidget().htmlPath;
+const userProfile = htmlPath.match(/^([A-Z]:\\Users\\[^\\]+)/i)?.[1] ?? '';
+// https://github.com/wezterm/wezterm/issues/4456#issuecomment-2286974918
+const WEZTERM_CWD = `${userProfile}\\.local\\share\\wezterm`;
+
 
 const WAITING_PATTERNS = [
     /yes, allow once/i,
@@ -47,12 +39,10 @@ function detectStatus(text) {
     return 'idle';
 }
 
-async function weztermExec(args, env = null) {
-    const bin = await getWeztermBin();
+async function weztermExec(args) {
     const label = `wezterm ${args.slice(0, 3).join(' ')}`;
     try {
-        const opts = env ? { env } : {};
-        const result = await shellExec(bin, args, opts);
+        const result = await shellExec('wezterm', args, { cwd: WEZTERM_CWD });
         if (result.code !== 0) {
             log.warn(`${label} exited ${result.code}`, {
                 stderr: result.stderr?.slice(0, 300) || '',
@@ -68,38 +58,12 @@ async function weztermExec(args, env = null) {
     }
 }
 
-async function discoverSocket() {
-    log.info('Discovering WezTerm socket');
-    try {
-        const result = await shellExec('node', ['-e',
-            `const fs=require('fs'),path=require('path');` +
-            `const dir=path.join(process.env.USERPROFILE,'.local','share','wezterm');` +
-            `try{const files=fs.readdirSync(dir).filter(f=>f.startsWith('gui-sock-'));` +
-            `if(!files.length)process.exit(1);` +
-            `const s=files.map(f=>({f,t:fs.statSync(path.join(dir,f)).mtimeMs})).sort((a,b)=>b.t-a.t);` +
-            `process.stdout.write(path.join(dir,s[0].f));}catch(e){process.exit(1);}`
-        ]);
-
-        if (result.code !== 0) {
-            log.warn('Socket discovery exited non-zero', { code: result.code });
-            return null;
-        }
-        const sock = result.stdout?.trim() || null;
-        log.info('Socket discovery result', { sock });
-        return sock;
-    } catch (e) {
-        log.error('Socket discovery threw', { message: e?.message ?? String(e) });
-        return null;
-    }
-}
-
 export function useAgentDeck(pollInterval = 2000) {
     const [state, setState] = useState({
         agents: [],
         counts: { working: 0, waiting: 0, idle: 0, inactive: 0 },
         connected: false,
     });
-    const socketRef = useRef(null);
     const pollCountRef = useRef(0);
 
     useEffect(() => {
@@ -107,30 +71,9 @@ export function useAgentDeck(pollInterval = 2000) {
             const n = ++pollCountRef.current;
             log.debug(`Poll #${n} start`);
 
-            // If we have a known-good socket, use it directly.
-            // Otherwise try without env first; if that fails, discover and cache the socket.
-            const env = socketRef.current ? { WEZTERM_UNIX_SOCKET: socketRef.current } : null;
-            let listOutput = await weztermExec(['cli', 'list', '--format', 'json'], env);
+            const listOutput = await weztermExec(['cli', 'list', '--format', 'json']);
 
             if (!listOutput) {
-                if (socketRef.current) {
-                    // Cached socket went stale — clear and re-discover
-                    log.info(`Poll #${n}: cached socket stale, re-discovering`);
-                    socketRef.current = null;
-                }
-                socketRef.current = await discoverSocket();
-                if (socketRef.current) {
-                    listOutput = await weztermExec(
-                        ['cli', 'list', '--format', 'json'],
-                        { WEZTERM_UNIX_SOCKET: socketRef.current }
-                    );
-                } else {
-                    log.warn(`Poll #${n}: no socket found, giving up`);
-                }
-            }
-
-            if (!listOutput) {
-                socketRef.current = null;
                 log.warn(`Poll #${n}: no output from wezterm cli list, setting disconnected`);
                 setState({ agents: [], counts: { working: 0, waiting: 0, idle: 0, inactive: 0 }, connected: false });
                 return;
@@ -152,8 +95,7 @@ export function useAgentDeck(pollInterval = 2000) {
 
             const agents = await Promise.all(claudePanes.map(async pane => {
                 const text = await weztermExec(
-                    ['cli', 'get-text', '--pane-id', String(pane.pane_id), '--start-line', '-20'],
-                    env
+                    ['cli', 'get-text', '--pane-id', String(pane.pane_id), '--start-line', '-20']
                 );
                 const status = detectStatus(text);
                 log.debug(`Pane ${pane.pane_id} status: ${status}`);
@@ -195,9 +137,8 @@ export function useAgentDeck(pollInterval = 2000) {
     }, [pollInterval]);
 
     function activatePane(paneId) {
-        log.info('activatePane', { paneId, socket: socketRef.current });
-        const env = socketRef.current ? { WEZTERM_UNIX_SOCKET: socketRef.current } : null;
-        return weztermExec(['cli', 'activate-pane', '--pane-id', String(paneId)], env);
+        log.info('activatePane', { paneId });
+        return weztermExec(['cli', 'activate-pane', '--pane-id', String(paneId)]);
     }
 
     return { ...state, activatePane };

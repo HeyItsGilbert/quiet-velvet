@@ -32,14 +32,6 @@
           {
             "program": "wezterm",
             "argsRegex": ".*"
-          },
-          {
-            "program": "cmd",
-            "argsRegex": ".*"
-          },
-          {
-            "program": "node",
-            "argsRegex": ".*"
           }
         ]
       },
