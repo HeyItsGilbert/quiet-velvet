@@ -8,6 +8,8 @@ const userProfile = htmlPath.match(/^([A-Z]:\\Users\\[^\\]+)/i)?.[1] ?? '';
 // https://github.com/wezterm/wezterm/issues/4456#issuecomment-2286974918
 const WEZTERM_CWD = `${userProfile}\\.local\\share\\wezterm`;
 
+const EXEC_TIMEOUT_MS = 3000;
+const MAX_BACKOFF_MS = 30000;
 
 const WAITING_PATTERNS = [
     /yes, allow once/i,
@@ -42,7 +44,12 @@ function detectStatus(text) {
 async function weztermExec(args) {
     const label = `wezterm ${args.slice(0, 3).join(' ')}`;
     try {
-        const result = await shellExec('wezterm', args, { cwd: WEZTERM_CWD });
+        const result = await Promise.race([
+            shellExec('wezterm', args, { cwd: WEZTERM_CWD }),
+            new Promise((_, reject) =>
+                setTimeout(() => reject(new Error(`timeout after ${EXEC_TIMEOUT_MS}ms`)), EXEC_TIMEOUT_MS)
+            ),
+        ]);
         if (result.code !== 0) {
             log.warn(`${label} exited ${result.code}`, {
                 stderr: result.stderr?.slice(0, 300) || '',
@@ -53,9 +60,14 @@ async function weztermExec(args) {
         log.debug(`${label} ok`, { bytes: result.stdout?.length ?? 0 });
         return result.stdout;
     } catch (e) {
-        log.error(`${label} threw`, { message: e?.message ?? String(e) });
+        log.error(`${label} failed`, { message: e?.message ?? String(e) });
         return null;
     }
+}
+
+function paneActivityKey(p) {
+    // Re-poll get-text only when one of these changes.
+    return `${p.cursor_x ?? ''}:${p.cursor_y ?? ''}:${p.size?.rows ?? ''}:${p.size?.cols ?? ''}:${p.title ?? ''}`;
 }
 
 export function useAgentDeck(pollInterval = 2000) {
@@ -65,8 +77,14 @@ export function useAgentDeck(pollInterval = 2000) {
         connected: false,
     });
     const pollCountRef = useRef(0);
+    const inFlightRef = useRef(false);
+    const backoffRef = useRef(0);
+    const paneCacheRef = useRef(new Map()); // paneId -> { activityKey, status }
 
     useEffect(() => {
+        let timer = null;
+        let cancelled = false;
+
         async function poll() {
             const n = ++pollCountRef.current;
             log.debug(`Poll #${n} start`);
@@ -74,34 +92,52 @@ export function useAgentDeck(pollInterval = 2000) {
             const listOutput = await weztermExec(['cli', 'list', '--format', 'json']);
 
             if (!listOutput) {
-                log.warn(`Poll #${n}: no output from wezterm cli list, setting disconnected`);
+                log.warn(`Poll #${n}: no output, disconnected`);
+                paneCacheRef.current.clear();
                 setState({ agents: [], counts: { working: 0, waiting: 0, idle: 0, inactive: 0 }, connected: false });
-                return;
+                return false;
             }
 
             let panes;
             try {
                 panes = JSON.parse(listOutput);
-                log.debug(`Poll #${n}: parsed ${panes.length} panes`);
             } catch (e) {
                 log.error(`Poll #${n}: JSON parse failed`, { message: e?.message, raw: listOutput.slice(0, 200) });
-                return;
+                return false;
             }
 
             const claudePanes = panes.filter(p =>
-                p.title && (/claude/i.test(p.title) || /^[\u2800-\u28FF\u2733]\s/.test(p.title))
+                p.title && (/claude/i.test(p.title) || /^[⠀-⣿✳]\s/.test(p.title))
             );
-            log.debug(`Poll #${n}: ${claudePanes.length} Claude pane(s) found`, claudePanes.map(p => ({ id: p.pane_id, title: p.title })));
+            log.debug(`Poll #${n}: ${claudePanes.length} Claude pane(s)`);
 
-            const agents = await Promise.all(claudePanes.map(async pane => {
-                const text = await weztermExec(
-                    ['cli', 'get-text', '--pane-id', String(pane.pane_id), '--start-line', '-20']
-                );
-                const status = detectStatus(text);
-                log.debug(`Pane ${pane.pane_id} status: ${status}`);
+            // Drop cache entries for panes that no longer exist.
+            const liveIds = new Set(claudePanes.map(p => p.pane_id));
+            for (const id of paneCacheRef.current.keys()) {
+                if (!liveIds.has(id)) paneCacheRef.current.delete(id);
+            }
+
+            // Sequential — limits concurrent wezterm processes to 1.
+            const agents = [];
+            for (const pane of claudePanes) {
+                const activityKey = paneActivityKey(pane);
+                const cached = paneCacheRef.current.get(pane.pane_id);
+
+                let status;
+                if (cached && cached.activityKey === activityKey) {
+                    status = cached.status;
+                    log.debug(`Pane ${pane.pane_id} cached status: ${status}`);
+                } else {
+                    const text = await weztermExec(
+                        ['cli', 'get-text', '--pane-id', String(pane.pane_id), '--start-line', '-20']
+                    );
+                    status = detectStatus(text);
+                    paneCacheRef.current.set(pane.pane_id, { activityKey, status });
+                    log.debug(`Pane ${pane.pane_id} fresh status: ${status}`);
+                }
 
                 let projectName = 'unknown';
-                const titleName = (pane.title || '').replace(/^[\u2800-\u28FF\u2733]\s*/, '');
+                const titleName = (pane.title || '').replace(/^[⠀-⣿✳]\s*/, '');
                 if (titleName && titleName !== 'Claude Code') {
                     projectName = titleName;
                 } else if (pane.cwd) {
@@ -115,8 +151,8 @@ export function useAgentDeck(pollInterval = 2000) {
                     }
                 }
 
-                return { paneId: pane.pane_id, agentType: 'claude', status, cwd: pane.cwd || '', title: pane.title || '', projectName };
-            }));
+                agents.push({ paneId: pane.pane_id, agentType: 'claude', status, cwd: pane.cwd || '', title: pane.title || '', projectName });
+            }
 
             const counts = { working: 0, waiting: 0, idle: 0, inactive: 0 };
             for (const agent of agents) {
@@ -125,14 +161,71 @@ export function useAgentDeck(pollInterval = 2000) {
 
             log.debug(`Poll #${n}: done`, { counts, agents: agents.length });
             setState({ agents, counts, connected: true });
+            return true;
+        }
+
+        async function tick() {
+            if (cancelled) return;
+
+            // Skip when widget is hidden — saves work and process spawns.
+            if (typeof document !== 'undefined' && document.hidden) {
+                log.debug('Tick skipped: document hidden');
+                schedule(pollInterval);
+                return;
+            }
+
+            // Belt-and-suspenders guard against overlapping polls.
+            if (inFlightRef.current) {
+                log.warn('Tick skipped: previous poll still in flight');
+                schedule(pollInterval);
+                return;
+            }
+
+            inFlightRef.current = true;
+            let success = false;
+            try {
+                success = await poll();
+            } catch (e) {
+                log.error('poll() threw', { message: e?.message ?? String(e) });
+            } finally {
+                inFlightRef.current = false;
+            }
+
+            if (success) {
+                backoffRef.current = 0;
+                schedule(pollInterval);
+            } else {
+                // Exponential backoff: 2s -> 4s -> 8s -> ... capped at MAX_BACKOFF_MS.
+                backoffRef.current = backoffRef.current
+                    ? Math.min(backoffRef.current * 2, MAX_BACKOFF_MS)
+                    : pollInterval * 2;
+                log.info('Backoff engaged', { nextMs: backoffRef.current });
+                schedule(backoffRef.current);
+            }
+        }
+
+        function schedule(ms) {
+            if (cancelled) return;
+            timer = setTimeout(tick, ms);
+        }
+
+        function onVisibility() {
+            if (!document.hidden && !inFlightRef.current) {
+                log.debug('Visibility regained, polling immediately');
+                clearTimeout(timer);
+                tick();
+            }
         }
 
         log.info('useAgentDeck mount', { pollInterval });
-        poll();
-        const interval = setInterval(poll, pollInterval);
+        document.addEventListener('visibilitychange', onVisibility);
+        tick();
+
         return () => {
             log.info('useAgentDeck unmount');
-            clearInterval(interval);
+            cancelled = true;
+            clearTimeout(timer);
+            document.removeEventListener('visibilitychange', onVisibility);
         };
     }, [pollInterval]);
 

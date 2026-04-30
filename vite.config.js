@@ -6,7 +6,14 @@ export default defineConfig({
     build: {
         outDir: 'dist',
         target: 'esnext',
-        sourcemap: true
+        sourcemap: true,
+        rollupOptions: {
+            output: {
+                entryFileNames: 'assets/index.js',
+                chunkFileNames: 'assets/[name].js',
+                assetFileNames: 'assets/[name][extname]',
+            },
+        },
     },
     base: './',
 });
