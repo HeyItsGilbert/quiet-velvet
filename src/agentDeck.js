@@ -2,14 +2,25 @@ import { useState, useEffect, useRef } from 'react';
 import { shellExec, currentWidget } from 'zebar';
 import { log } from './logger.js';
 
-// Derive USERPROFILE from the widget's html path (e.g. C:\Users\<user>\.glzr\...)
-const htmlPath = currentWidget().htmlPath;
-const userProfile = htmlPath.match(/^([A-Z]:\\Users\\[^\\]+)/i)?.[1] ?? '';
-// https://github.com/wezterm/wezterm/issues/4456#issuecomment-2286974918
-const WEZTERM_CWD = `${userProfile}\\.local\\share\\wezterm`;
-
 const EXEC_TIMEOUT_MS = 3000;
 const MAX_BACKOFF_MS = 30000;
+
+// Derive USERPROFILE from the widget's html path (e.g. C:\Users\<user>\.glzr\...).
+// Lazy: a throw from currentWidget() at module load would crash the whole bundle
+// and leave the bar blank with no visible error. See wezterm#4456 for cwd rationale.
+let _weztermCwd = null;
+function getWeztermCwd() {
+    if (_weztermCwd !== null) return _weztermCwd;
+    try {
+        const htmlPath = currentWidget().htmlPath;
+        const userProfile = htmlPath.match(/^([A-Z]:\\Users\\[^\\]+)/i)?.[1] ?? '';
+        _weztermCwd = `${userProfile}\\.local\\share\\wezterm`;
+    } catch (e) {
+        log.error('currentWidget() failed, falling back to no cwd', { message: e?.message ?? String(e) });
+        _weztermCwd = '';
+    }
+    return _weztermCwd;
+}
 
 const WAITING_PATTERNS = [
     /yes, allow once/i,
@@ -44,8 +55,9 @@ function detectStatus(text) {
 async function weztermExec(args) {
     const label = `wezterm ${args.slice(0, 3).join(' ')}`;
     try {
+        const cwd = getWeztermCwd();
         const result = await Promise.race([
-            shellExec('wezterm', args, { cwd: WEZTERM_CWD }),
+            shellExec('wezterm', args, cwd ? { cwd } : {}),
             new Promise((_, reject) =>
                 setTimeout(() => reject(new Error(`timeout after ${EXEC_TIMEOUT_MS}ms`)), EXEC_TIMEOUT_MS)
             ),
