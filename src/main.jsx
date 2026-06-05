@@ -8,6 +8,13 @@ import AgentDeck from "./components/AgentDeck.jsx";
 import config from "./config.js";
 import moment from "moment";
 
+window.onerror = (msg, src, line, col, err) => {
+    console.error('[Zebar] Uncaught error:', msg, `\n  at ${src}:${line}:${col}`, err?.stack || '');
+};
+window.onunhandledrejection = (e) => {
+    console.error('[Zebar] Unhandled rejection:', e.reason?.message || e.reason, e.reason?.stack || '');
+};
+
 const providers = zebar.createProviderGroup({
     keyboard: { type: 'keyboard' },
     glazewm: { type: 'glazewm' },
@@ -19,7 +26,23 @@ const providers = zebar.createProviderGroup({
     host: { type: 'host' }
 });
 
-createRoot(document.getElementById('root')).render(<App/>);
+class ErrorBoundary extends React.Component {
+    constructor(props) { super(props); this.state = { error: null }; }
+    static getDerivedStateFromError(error) { return { error }; }
+    componentDidCatch(error, info) {
+        console.error('[Zebar] React render error:', error.message, error.stack, info.componentStack);
+    }
+    render() {
+        if (this.state.error) {
+            return <div style={{color:'#f87171',fontSize:'11px',padding:'8px'}}>
+                Widget error — check console
+            </div>;
+        }
+        return this.props.children;
+    }
+}
+
+createRoot(document.getElementById('root')).render(<ErrorBoundary><App/></ErrorBoundary>);
 
 function App() {
     const [output, setOutput] = useState(providers.outputMap);
