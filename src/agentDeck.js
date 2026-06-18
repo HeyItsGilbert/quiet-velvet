@@ -2,7 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import { shellExec, currentWidget } from 'zebar';
 import { log } from './logger.js';
 
-const EXEC_TIMEOUT_MS = 3000;
+const WEZTERM_TIMEOUT_MS = 3000;
+// `claude agents --json` spawns a node-based CLI that warms in ~2.5-3s; give it
+// headroom so a slow-but-successful call isn't mistaken for a failure.
+const CLAUDE_TIMEOUT_MS = 6000;
 const MAX_BACKOFF_MS = 30000;
 
 // Derive USERPROFILE from the widget's html path (e.g. C:\Users\<user>\.glzr\...).
@@ -22,6 +25,9 @@ function getWeztermCwd() {
     return _weztermCwd;
 }
 
+// Collision-only fallback: when a cwd's pane<->session mapping is not 1:1 we
+// cannot pair the two JSON sources, so we classify those panes the old way by
+// scraping their text. Kept deliberately; see docs/adr/0001.
 const WAITING_PATTERNS = [
     /yes, allow once/i,
     /allow for this session/i,
@@ -52,14 +58,55 @@ function detectStatus(text) {
     return 'idle';
 }
 
-async function weztermExec(args) {
-    const label = `wezterm ${args.slice(0, 3).join(' ')}`;
+// Map a `claude agents --json` live status onto the deck's vocabulary.
+function mapClaudeStatus(status) {
+    switch (status) {
+        case 'busy': return 'working';
+        case 'waiting': return 'waiting';
+        case 'idle': return 'idle';
+        default:
+            // Unknown live status: assume active rather than silently report "done".
+            log.warn('Unknown claude status, treating as working', { status });
+            return 'working';
+    }
+}
+
+// Reduce a cwd from either source to a comparable key. WezTerm reports
+// `file:///C:/Users/...` with forward slashes; claude reports `C:\Users\...`.
+// Windows paths are case-insensitive, so lowercase to make the join reliable.
+function normalizeCwd(raw) {
+    if (!raw) return '';
+    let s = String(raw).replace(/^file:\/\/[^/]*/, '').replace(/\\/g, '/');
+    try { s = decodeURIComponent(s); } catch { /* keep raw on malformed escapes */ }
+    return s.replace(/\/+$/, '').toLowerCase();
+}
+
+// Display name: prefer the (spinner-stripped) pane title, else the cwd basename.
+// Uses the raw cwd so casing is preserved for display.
+function deriveProjectName(pane) {
+    const titleName = (pane.title || '').replace(/^[⠀-⣿✳]\s*/, '');
+    if (titleName && titleName !== 'Claude Code') return titleName;
+    if (pane.cwd) {
+        const cleaned = pane.cwd.replace(/^file:\/\/[^/]*/, '').replace(/\\/g, '/');
+        try {
+            const segments = decodeURIComponent(cleaned).split('/').filter(Boolean);
+            return segments[segments.length - 1] || 'unknown';
+        } catch {
+            const segments = cleaned.split('/').filter(Boolean);
+            return segments[segments.length - 1] || 'unknown';
+        }
+    }
+    return 'unknown';
+}
+
+async function runExec(program, args, timeoutMs, useWeztermCwd) {
+    const label = `${program} ${args.slice(0, 3).join(' ')}`;
     try {
-        const cwd = getWeztermCwd();
+        const cwd = useWeztermCwd ? getWeztermCwd() : '';
         const result = await Promise.race([
-            shellExec('wezterm', args, cwd ? { cwd } : {}),
+            shellExec(program, args, cwd ? { cwd } : {}),
             new Promise((_, reject) =>
-                setTimeout(() => reject(new Error(`timeout after ${EXEC_TIMEOUT_MS}ms`)), EXEC_TIMEOUT_MS)
+                setTimeout(() => reject(new Error(`timeout after ${timeoutMs}ms`)), timeoutMs)
             ),
         ]);
         if (result.code !== 0) {
@@ -77,8 +124,12 @@ async function weztermExec(args) {
     }
 }
 
+const weztermExec = (args) => runExec('wezterm', args, WEZTERM_TIMEOUT_MS, true);
+// claude agents lists all sessions regardless of cwd, so don't pin one.
+const claudeExec = (args) => runExec('claude', args, CLAUDE_TIMEOUT_MS, false);
+
 function paneActivityKey(p) {
-    // Re-poll get-text only when one of these changes.
+    // Re-evaluate (claude refresh, or collision get-text) only when one of these changes.
     return `${p.cursor_x ?? ''}:${p.cursor_y ?? ''}:${p.size?.rows ?? ''}:${p.size?.cols ?? ''}:${p.title ?? ''}`;
 }
 
@@ -91,11 +142,26 @@ export function useAgentDeck(pollInterval = 2000) {
     const pollCountRef = useRef(0);
     const inFlightRef = useRef(false);
     const backoffRef = useRef(0);
-    const paneCacheRef = useRef(new Map()); // paneId -> { activityKey, status }
+    const paneCacheRef = useRef(new Map()); // paneId -> { activityKey, status } (collision fallback)
+    const claudeMapRef = useRef(null);      // normalizedCwd -> [{ status, waitingFor }]
+    const claudeSigRef = useRef('');        // pane activity signature behind the cached claude map
 
     useEffect(() => {
         let timer = null;
         let cancelled = false;
+
+        // Collision fallback for one pane: scrape its text, activity-gated by paneCache.
+        async function collisionStatus(pane) {
+            const activityKey = paneActivityKey(pane);
+            const cached = paneCacheRef.current.get(pane.pane_id);
+            if (cached && cached.activityKey === activityKey) return cached.status;
+            const text = await weztermExec(
+                ['cli', 'get-text', '--pane-id', String(pane.pane_id), '--start-line', '-20']
+            );
+            const status = detectStatus(text);
+            paneCacheRef.current.set(pane.pane_id, { activityKey, status });
+            return status;
+        }
 
         async function poll() {
             const n = ++pollCountRef.current;
@@ -106,6 +172,8 @@ export function useAgentDeck(pollInterval = 2000) {
             if (!listOutput) {
                 log.warn(`Poll #${n}: no output, disconnected`);
                 paneCacheRef.current.clear();
+                claudeMapRef.current = null;
+                claudeSigRef.current = '';
                 setState({ agents: [], counts: { working: 0, waiting: 0, idle: 0, inactive: 0 }, connected: false });
                 return false;
             }
@@ -129,41 +197,88 @@ export function useAgentDeck(pollInterval = 2000) {
                 if (!liveIds.has(id)) paneCacheRef.current.delete(id);
             }
 
-            // Sequential — limits concurrent wezterm processes to 1.
+            if (claudePanes.length === 0) {
+                claudeMapRef.current = null;
+                claudeSigRef.current = '';
+                setState({ agents: [], counts: { working: 0, waiting: 0, idle: 0, inactive: 0 }, connected: true });
+                return true;
+            }
+
+            // Activity-gate the (slow) claude call: only refresh when some pane's
+            // activity signature changed. A working agent animates its spinner
+            // (title changes) so it refreshes every poll; idle/waiting agents are
+            // stable, so claude isn't spawned. Mirrors the get-text caching pattern.
+            const activitySig = claudePanes
+                .map(p => `${p.pane_id}=${paneActivityKey(p)}`)
+                .sort()
+                .join('|');
+
+            if (claudeMapRef.current === null || activitySig !== claudeSigRef.current) {
+                const cjson = await claudeExec(['agents', '--json']);
+                if (cjson !== null) {
+                    try {
+                        const sessions = JSON.parse(cjson).filter(s => s.kind === 'interactive');
+                        const map = new Map();
+                        for (const s of sessions) {
+                            const key = normalizeCwd(s.cwd);
+                            const entry = { status: mapClaudeStatus(s.status), waitingFor: s.waitingFor ?? null };
+                            if (!map.has(key)) map.set(key, []);
+                            map.get(key).push(entry);
+                        }
+                        claudeMapRef.current = map;
+                        claudeSigRef.current = activitySig;
+                        log.debug(`Poll #${n}: claude refresh`, { sessions: sessions.length });
+                    } catch (e) {
+                        log.error(`Poll #${n}: claude JSON parse failed`, { message: e?.message, raw: cjson.slice(0, 200) });
+                        // Keep the prior (stale) map rather than wiping all statuses.
+                    }
+                } else {
+                    log.warn(`Poll #${n}: claude call failed; reusing prior map`);
+                }
+            } else {
+                log.debug(`Poll #${n}: claude cache reuse`);
+            }
+
+            const claudeMap = claudeMapRef.current || new Map();
+
+            // Group panes by cwd so we can detect collisions (mapping not 1:1).
+            const panesByCwd = new Map();
+            for (const pane of claudePanes) {
+                const key = normalizeCwd(pane.cwd);
+                if (!panesByCwd.has(key)) panesByCwd.set(key, []);
+                panesByCwd.get(key).push(pane);
+            }
+
             const agents = [];
             for (const pane of claudePanes) {
-                const activityKey = paneActivityKey(pane);
-                const cached = paneCacheRef.current.get(pane.pane_id);
+                const key = normalizeCwd(pane.cwd);
+                const panesHere = panesByCwd.get(key) || [pane];
+                const sessionsHere = claudeMap.get(key) || [];
 
                 let status;
-                if (cached && cached.activityKey === activityKey) {
-                    status = cached.status;
-                    log.debug(`Pane ${pane.pane_id} cached status: ${status}`);
+                let waitingFor = null;
+                if (panesHere.length === 1 && sessionsHere.length === 1) {
+                    // 1 pane <-> 1 session: trust the authoritative claude status.
+                    status = sessionsHere[0].status;
+                    waitingFor = sessionsHere[0].waitingFor;
+                } else if (sessionsHere.length === 0) {
+                    // Pane qualifies as an agent but no live session backs its cwd.
+                    status = 'inactive';
                 } else {
-                    const text = await weztermExec(
-                        ['cli', 'get-text', '--pane-id', String(pane.pane_id), '--start-line', '-20']
-                    );
-                    status = detectStatus(text);
-                    paneCacheRef.current.set(pane.pane_id, { activityKey, status });
-                    log.debug(`Pane ${pane.pane_id} fresh status: ${status}`);
+                    // Collision: can't pair sources by cwd alone, scrape this pane.
+                    status = await collisionStatus(pane);
+                    log.debug(`Pane ${pane.pane_id} collision status: ${status}`);
                 }
 
-                let projectName = 'unknown';
-                const titleName = (pane.title || '').replace(/^[⠀-⣿✳]\s*/, '');
-                if (titleName && titleName !== 'Claude Code') {
-                    projectName = titleName;
-                } else if (pane.cwd) {
-                    const cleaned = pane.cwd.replace(/^file:\/\/[^/]*/, '').replace(/\\/g, '/');
-                    try {
-                        const segments = decodeURIComponent(cleaned).split('/').filter(Boolean);
-                        projectName = segments[segments.length - 1] || 'unknown';
-                    } catch {
-                        const segments = cleaned.split('/').filter(Boolean);
-                        projectName = segments[segments.length - 1] || 'unknown';
-                    }
-                }
-
-                agents.push({ paneId: pane.pane_id, agentType: 'claude', status, cwd: pane.cwd || '', title: pane.title || '', projectName });
+                agents.push({
+                    paneId: pane.pane_id,
+                    agentType: 'claude',
+                    status,
+                    waitingFor,
+                    cwd: pane.cwd || '',
+                    title: pane.title || '',
+                    projectName: deriveProjectName(pane),
+                });
             }
 
             const counts = { working: 0, waiting: 0, idle: 0, inactive: 0 };

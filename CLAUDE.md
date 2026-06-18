@@ -47,11 +47,12 @@ The Agent Deck monitors Claude Code sessions running in WezTerm panes and displa
 
 ### How It Works
 
-1. **Polling** (`src/agentDeck.js`): `useAgentDeck` runs a `setInterval` loop (default 1s) that calls `wezterm cli list --format json` to enumerate all open panes.
-2. **Agent detection**: Panes are filtered by title — matches `/claude/i` or a braille/spinner prefix (`[\u2800-\u28FF\u2733]`). The latter covers Claude Code's animated spinner character.
-3. **Status detection**: For each matching pane, `wezterm cli get-text --start-line -20` fetches the last 20 lines. Regex patterns classify the output as `working`, `waiting`, `idle`, or `inactive`.
-4. **Project name**: Extracted from the pane title (spinner prefix stripped), falling back to the last path segment of the pane's CWD.
-5. **Click to focus**: Clicking an agent calls `activatePane`, which first switches GlazeWM to the workspace containing WezTerm, then calls `wezterm cli activate-pane`.
+1. **Polling** (`src/agentDeck.js`): `useAgentDeck` runs a self-scheduling loop that calls `wezterm cli list --format json` every poll to enumerate all open panes.
+2. **Agent detection**: Panes are filtered by title — matches `/claude/i` or a braille/spinner prefix (`[\u2800-\u28FF\u2733]`). The latter covers Claude Code's animated spinner character. Detection stays title-based on purpose — a pane is never identified as an agent by its cwd.
+3. **Status**: Sourced from `claude agents --json` (filtered to `kind:"interactive"`), mapped `busy`→`working`, `waiting`→`waiting` (with its `waitingFor` reason), `idle`→`idle`. Sessions are joined to panes by **normalized cwd** — on Windows WezTerm exposes no pid/tty, so cwd is the only key shared between the two sources. The claude call is **activity-gated**: spawned only when a pane's activity signature (title/cursor/size) changes, so idle agents cost nothing extra.
+4. **Collision fallback**: when a cwd's pane↔session mapping is not 1:1 (multiple panes and/or sessions in one directory), those panes fall back to `wezterm cli get-text` + regex classification (`detectStatus`). A qualifying pane whose cwd has no live session is `inactive`. See `docs/adr/0001`.
+5. **Project name**: Extracted from the pane title (spinner prefix stripped), falling back to the last path segment of the pane's CWD.
+6. **Click to focus**: Clicking an agent calls `activatePane`, which first switches GlazeWM to the workspace containing WezTerm, then calls `wezterm cli activate-pane`.
 
 ### WezTerm Socket Handling
 
@@ -65,22 +66,21 @@ WezTerm on Windows uses a Unix socket at `%USERPROFILE%\.local\share\wezterm\gui
 
 Zebar runs in a **Tauri WebView** — Node.js `fs` is not available in widget JavaScript. The only OS escape hatch is `shellExec` from the `zebar` package. All file and shell operations go through it.
 
-- File I/O (log appending, socket discovery) uses `shellExec('node', ['-e', ...])` — Node starts ~20x faster than PowerShell and needs no profile or base64 encoding.
-- Shell commands must be whitelisted in `zpack.json` under `privileges.shellCommands`. Currently: `wezterm`, `cmd`, `node`.
+- Shell commands must be whitelisted in `zpack.json` under `privileges.shellCommands`. Currently: `wezterm` (any args) and `claude` (`agents …` only). `claude` is resolved via PATH — it lives on the user PATH at `~/.local/bin`, so Zebar must run in a user session that inherits it.
 
 ### Key Files
 
 | File | Purpose |
 |---|---|
-| `src/agentDeck.js` | `useAgentDeck` hook, WezTerm CLI calls, socket + binary path caching, status detection |
+| `src/agentDeck.js` | `useAgentDeck` hook, WezTerm + `claude agents` CLI calls, cwd-join, status sourcing, collision fallback |
 | `src/logger.js` | Structured logger — buffers up to 300 entries, flushes to `agent-deck.log` every 3s via `node` |
 | `src/components/AgentDeck.jsx` | React component — compact badge view, hover-expand to per-agent buttons |
 
 ### Status Values
 
-| Status | Meaning | Trigger patterns |
+| Status | Meaning | Source |
 |---|---|---|
-| `working` | Actively running a tool | "esc to interrupt", "thinking", "processing", "searching", etc. |
-| `waiting` | Awaiting user input | "yes, allow once", "(y/n)", "approve this plan", "press enter", etc. |
-| `idle` | Prompt shown, no activity | (none of the above matched) |
-| `inactive` | Pane has no text | Empty output from `get-text` |
+| `working` | Actively running | claude `busy` (collision: working regex patterns) |
+| `waiting` | Awaiting user input | claude `waiting` + `waitingFor` reason (collision: waiting regex patterns) |
+| `idle` | Prompt shown, no activity | claude `idle` (collision: no pattern matched) |
+| `inactive` | Pane qualifies but no live session | cwd has no `claude agents` session |
