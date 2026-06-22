@@ -15,6 +15,11 @@ const STATUS_ICONS = {
     inactive: 'nf-md-ghost_off',
 };
 
+function agentTooltip(agent) {
+    const reason = agent.status === 'waiting' && agent.waitingFor ? `: ${agent.waitingFor}` : '';
+    return `${agent.projectName} — ${agent.status}${reason} (pane ${agent.paneId})`;
+}
+
 function findWeztermContainer(workspaces) {
     for (const ws of workspaces) {
         const stack = [...(ws.children || [])];
@@ -59,7 +64,7 @@ const AgentDeck = ({ commandRunner, glazewm }) => {
                                 key={agent.paneId}
                                 className="agent-deck-agent clean-button"
                                 onClick={() => focusPane(agent.paneId)}
-                                title={`Focus pane ${agent.paneId}`}
+                                title={agentTooltip(agent)}
                             >
                                 <i
                                     className={`nf ${STATUS_ICONS[agent.status] || STATUS_ICONS.inactive} agent-deck-status-icon`}

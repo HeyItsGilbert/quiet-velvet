@@ -32,6 +32,10 @@
           {
             "program": "wezterm",
             "argsRegex": ".*"
+          },
+          {
+            "program": "claude",
+            "argsRegex": "^agents( |$).*"
           }
         ]
       },
