@@ -78,6 +78,9 @@ function normalizeCwd(raw) {
     if (!raw) return '';
     let s = String(raw).replace(/^file:\/\/[^/]*/, '').replace(/\\/g, '/');
     try { s = decodeURIComponent(s); } catch { /* keep raw on malformed escapes */ }
+    // WezTerm's file:/// form leaves a slash before the drive letter (/C:/...)
+    // that the claude form (C:\...) lacks — strip it so the two keys match.
+    s = s.replace(/^\/([a-zA-Z]:)/, '$1');
     return s.replace(/\/+$/, '').toLowerCase();
 }
 
